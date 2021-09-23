@@ -1,7 +1,7 @@
 (ns web-demo.main
-  (:require [org.httpkit.server :refer [run-server]]
-            [web-demo.ds :as db]
+  (:require [web-demo.ds :as db]
             [web-demo.routes :as routes]
+            [web-demo.http :as http]
             [next.jdbc :as jdbc]))
 
 (comment
@@ -17,26 +17,31 @@ insert into address(name,email)
   values('Sean Corfield','sean@corfield.org')"]))
 
 
-(defn start [{:keys [port handler] :as config}]
-  (assoc config :http (run-server handler {:port port})))
+(def config {:db {:dbtype "h2" :dbname "example"}
+             :port 3000})
 
-(defn stop [{:keys [http] :as config}]
-  (http)
-  (dissoc config :http))
+(def system (atom nil))
 
-(def system
-  (-> {:db {:dbtype "h2" :dbname "example"}
-       :port 3000}
-      (db/start)
-      (routes/start)
-      (start)))
+(defn start []
+  (reset! system
+          (-> config
+              (db/start)
+              (routes/start)
+              (http/start))))
 
-(-> system
-    (stop)
-    (routes/stop)
-    (db/stop))
+(defn stop []
+  (-> @system
+      (http/stop)
+      (routes/stop)
+      (db/stop)))
 
-(jdbc/execute! (:ds system) ["select 1"])
+(defn add-shutdown-hook [f]
+  (-> (Runtime/getRuntime)
+      (.addShutdownHook (Thread. f))))
 
-
-
+(defn -main [& args]
+  (add-shutdown-hook (fn []
+                       (stop)
+                       (println "app-stopped")))
+  (start)
+  (println "app-started"))
